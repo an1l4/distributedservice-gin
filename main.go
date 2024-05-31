@@ -19,11 +19,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
 	"github.com/an1l4/distributedservice-gin/handlers"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -73,7 +75,16 @@ func init() {
 
 	collection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("recipes")
 
-	recipesHandler = handlers.NewRecipesHandler(ctx, collection)
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+
+	status := redisClient.Ping()
+	fmt.Println(status)
+
+	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
 
 }
 
@@ -83,8 +94,8 @@ func main() {
 	router.GET("/recipes", recipesHandler.ListRecipesHandler)
 	router.PUT("/recipes/:id", recipesHandler.UpdateRecipehandler)
 	router.DELETE("/recipes/:id", recipesHandler.DeleteRecipeHandler)
-	router.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
-	router.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
+	//router.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
+	router.GET("/recipes/:id", recipesHandler.GetOneRecipeHandler)
 	router.Run()
 
 }

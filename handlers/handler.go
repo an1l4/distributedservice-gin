@@ -2,29 +2,31 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/an1l4/distributedservice-gin/models"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type RecipesHandler struct {
-	collection *mongo.Collection
-	ctx        context.Context
+	collection  *mongo.Collection
+	ctx         context.Context
+	redisClient *redis.Client
 }
 
-func NewRecipesHandler(ctx context.Context, collection *mongo.Collection) *RecipesHandler {
+func NewRecipesHandler(ctx context.Context, collection *mongo.Collection, redisClient *redis.Client) *RecipesHandler {
 	return &RecipesHandler{
-		collection: collection,
-		ctx:        ctx,
+		collection:  collection,
+		ctx:         ctx,
+		redisClient: redisClient,
 	}
 }
 
@@ -38,21 +40,39 @@ func NewRecipesHandler(ctx context.Context, collection *mongo.Collection) *Recip
 //	'200':
 //	    description: Successful operation
 func (handler *RecipesHandler) ListRecipesHandler(c *gin.Context) {
-	cur, err := handler.collection.Find(handler.ctx, bson.M{})
-	if err != nil {
+
+	val, err := handler.redisClient.Get("recipes").Result()
+	if err == redis.Nil {
+		log.Println("Request to MongoDB")
+
+		cur, err := handler.collection.Find(handler.ctx, bson.M{})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		defer cur.Close(handler.ctx)
+
+		recipes := make([]models.Recipe, 0)
+		for cur.Next(handler.ctx) {
+			var recipe models.Recipe
+			cur.Decode(&recipe)
+			recipes = append(recipes, recipe)
+		}
+
+		data, _ := json.Marshal(recipes)
+		handler.redisClient.Set("recipes", data, 0)
+		c.JSON(http.StatusOK, recipes)
+	} else if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
 
-	defer cur.Close(handler.ctx)
-
-	recipes := make([]models.Recipe, 0)
-	for cur.Next(handler.ctx) {
-		var recipe models.Recipe
-		cur.Decode(&recipe)
-		recipes = append(recipes, recipe)
+	} else {
+		log.Println("Request to Redis")
+		recipes := make([]models.Recipe, 0)
+		json.Unmarshal([]byte(val), &recipes)
+		c.JSON(http.StatusOK, recipes)
 	}
-	c.JSON(http.StatusOK, recipes)
 }
 
 // swagger:operation POST /recipes recipes newRecipe
@@ -82,6 +102,8 @@ func (handler *RecipesHandler) NewRecipeHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error while inserting a new recipe"})
 		return
 	}
+	log.Println("Remove data from redis")
+	handler.redisClient.Del("recipes")
 	c.JSON(http.StatusOK, recipe)
 
 }
@@ -143,6 +165,8 @@ func (handler *RecipesHandler) UpdateRecipehandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	log.Println("Remove data from redis")
+	handler.redisClient.Del("recipes")
 	c.JSON(http.StatusOK, gin.H{"message": "Recipe has been updated"})
 }
 
@@ -166,6 +190,7 @@ func (handler *RecipesHandler) UpdateRecipehandler(c *gin.Context) {
 //	    description: Invalid recipe ID
 func (handler *RecipesHandler) DeleteRecipeHandler(c *gin.Context) {
 	id := c.Param("id")
+	objectId, _ := primitive.ObjectIDFromHex(id)
 
 	// index := -1
 	// for i := 0; i < len(recipes); i++ {
@@ -180,11 +205,15 @@ func (handler *RecipesHandler) DeleteRecipeHandler(c *gin.Context) {
 	// }
 	// recipes = append(recipes[:index], recipes[index+1:]...)
 
-	opts := options.Delete().SetCollation(&options.Collation{})
-	_, err := handler.collection.DeleteOne(context.TODO(), bson.D{{"_id", id}}, opts)
+	_, err := handler.collection.DeleteOne(handler.ctx, bson.M{"_id": objectId})
 	if err != nil {
-		log.Fatal(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
+
+	log.Println("Remove data from Redis")
+	handler.redisClient.Del("recipes")
+
 	c.JSON(http.StatusOK, gin.H{"message": "Recipe has been Deleted"})
 }
 
@@ -204,24 +233,24 @@ func (handler *RecipesHandler) DeleteRecipeHandler(c *gin.Context) {
 //
 //	'200':
 //	    description: Successful operation
-func (handler *RecipesHandler) SearchRecipesHandler(c *gin.Context) {
-	tag := c.Query("tag")
-	listOfRecipes := make([]Recipe, 0)
+// func (handler *RecipesHandler) SearchRecipesHandler(c *gin.Context) {
+// 	tag := c.Query("tag")
+// 	listOfRecipes := make([]Recipe, 0)
 
-	for i := 0; i < len(recipes); i++ {
-		found := false
-		for _, t := range recipes[i].Tags {
-			if strings.EqualFold(t, tag) {
-				found = true
-			}
-		}
-		if found {
-			listOfRecipes = append(listOfRecipes, recipes[i])
-		}
-	}
-	c.JSON(http.StatusOK, listOfRecipes)
+// 	for i := 0; i < len(recipes); i++ {
+// 		found := false
+// 		for _, t := range recipes[i].Tags {
+// 			if strings.EqualFold(t, tag) {
+// 				found = true
+// 			}
+// 		}
+// 		if found {
+// 			listOfRecipes = append(listOfRecipes, recipes[i])
+// 		}
+// 	}
+// 	c.JSON(http.StatusOK, listOfRecipes)
 
-}
+// }
 
 // swagger:operation GET /recipes/{id} recipes oneRecipe
 // Get one recipe
@@ -241,14 +270,22 @@ func (handler *RecipesHandler) SearchRecipesHandler(c *gin.Context) {
 //	    description: Successful operation
 //	'404':
 //	    description: Invalid recipe ID
-func (handler *RecipesHandler) GetRecipeHandler(c *gin.Context) {
+func (handler *RecipesHandler) GetOneRecipeHandler(c *gin.Context) {
 	id := c.Param("id")
-	for i := 0; i < len(recipes); i++ {
-		if recipes[i].ID == id {
-			c.JSON(http.StatusOK, recipes[i])
-			return
-		}
-	}
+	// for i := 0; i < len(recipes); i++ {
+	// 	if recipes[i].ID == id {
+	// 		c.JSON(http.StatusOK, recipes[i])
+	// 		return
+	// 	}
+	// }
+	objectId, _ := primitive.ObjectIDFromHex(id)
+	cur := handler.collection.FindOne(handler.ctx, bson.M{"_id": objectId})
 
-	c.JSON(http.StatusNotFound, gin.H{"error": "Recipe not found"})
+	var recipe models.Recipe
+	err := cur.Decode(&recipe)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, recipe)
 }
