@@ -87,6 +87,10 @@ func (handler *RecipesHandler) ListRecipesHandler(c *gin.Context) {
 //	'400':
 //	    description: Invalid input
 func (handler *RecipesHandler) NewRecipeHandler(c *gin.Context) {
+	/*if c.GetHeader("X-API-KEY") != os.Getenv("X_API_KEY") {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "API key not provided or invalid"})
+		return
+	}*/
 	var recipe models.Recipe
 	if err := c.ShouldBindJSON(&recipe); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
