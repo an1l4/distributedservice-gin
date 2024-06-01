@@ -23,6 +23,8 @@ export MONGO_URI=mongodb://admin:password@localhost:27017 && export MONGO_DATABA
 
 export X_API_KEY=eUbP9shywUygMx7u && export MONGO_URI=mongodb://admin:password@localhost:27017 && export MONGO_DATABASE=demo && go run main.go
 
+export JWT_SECRET=eUbP9shywUygMx7u && export MONGO_URI=mongodb://admin:password@localhost:27017 && export MONGO_DATABASE=demo && go run main.go
+
 mongoimport --username admin --password password --authenticationDatabase admin --db demo --collection recipes --file recipes.json --jsonArray
 
 docker run -d --name redis -p 6379:6379 redis:6.0
