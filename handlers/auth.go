@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"time"
@@ -45,10 +46,12 @@ func (handler *AuthHandler) SignInHandler(c *gin.Context) {
 	}
 
 	h := sha256.New()
+	h.Write([]byte(user.Password))
+	hashedPassword := hex.EncodeToString(h.Sum(nil))
 
 	cur := handler.collection.FindOne(handler.ctx, bson.M{
 		"username": user.Username,
-		"password": string(h.Sum([]byte(user.Password))),
+		"password": hashedPassword,
 	})
 
 	if cur.Err() != nil {
