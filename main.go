@@ -19,6 +19,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -26,6 +28,7 @@ import (
 	"github.com/an1l4/distributedservice-gin/handlers"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -66,6 +69,11 @@ func init() {
 
 	log.Println("Inserted recipes: ", len(insertManyResult.InsertedIDs))*/
 
+	users := map[string]string{
+		"admin": "fCRmh4Q2J7Rseqkz",
+		"packt": "RE4zfHB35VPtTkbT",
+		"anila": "L3nSFRcZzNQ67bcc",
+	}
 	ctx := context.Background()
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 
@@ -88,7 +96,23 @@ func init() {
 	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
 
 	collectionUsers := client.Database(os.Getenv("MONGO_DATABASE")).Collection("users")
+
 	authHandler = handlers.NewAuthHandler(ctx, collectionUsers)
+
+	h := sha256.New()
+
+	for username, password := range users {
+		h.Reset()
+		h.Write([]byte(password))
+		hashedPassword := hex.EncodeToString(h.Sum(nil))
+		_, err := collectionUsers.InsertOne(ctx, bson.M{
+			"username": username,
+			"password": hashedPassword,
+		})
+		if err != nil {
+			log.Printf("Error inserting user %s: %v\n", username, err)
+		}
+	}
 
 }
 
