@@ -46,3 +46,10 @@ ab -n 2000 -c 100 -g with-cache.data http://localhost:8080/recipes
 start gnuplot $gnuplot
 
 gnuplot apache-benchmark.p   #image creation
+
+{
+    "name":"pizza",
+    "steps":["..."],
+    "ingredients":["..."],
+    "tags":["fastfood","dinner"]
+}
