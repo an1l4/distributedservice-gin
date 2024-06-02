@@ -149,6 +149,7 @@ func main() {
 		authorized.GET("/recipes/:id", recipesHandler.GetOneRecipeHandler)
 
 	}
+	//router.RunTLS(":443","certs/localhost.crt","certs/localhost.key")
 	router.Run()
 
 }
